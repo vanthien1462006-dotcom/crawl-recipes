@@ -1,126 +1,113 @@
-# MonNgonMoiNgay Recipe Crawler
+# Crawler công thức nấu ăn — monngonmoingay.com
 
-Crawler Python thu thập thông tin công thức từ [monngonmoingay.com](https://monngonmoingay.com/), hỗ trợ xuất dữ liệu JSON và CSV. Đây là dự án độc lập, không phải sản phẩm chính thức hay được Ajinomoto Việt Nam/monngonmoingay.com bảo trợ.
+Script Python để thu thập dữ liệu công thức nấu ăn từ trang
+[monngonmoingay.com](https://monngonmoingay.com/): tên món, ảnh, khẩu phần,
+thời gian nấu, độ khó, nguyên liệu (tên + số lượng + đơn vị), các bước
+sơ chế/thực hiện/cách dùng/mách nhỏ, và thẻ phân loại.
 
-## Tính năng
-
-- Quét trang danh mục và tải trang chi tiết công thức.
-- Trích xuất tên, URL, ảnh, khẩu phần, thời gian, độ khó, nguyên liệu, các bước nấu, ghi chú và thẻ phân loại.
-- Phân tích số lượng/đơn vị nguyên liệu khi có thể; giữ nguyên dòng nguyên liệu nếu không tách được.
-- Kiểm tra `robots.txt`, đặt thời gian nghỉ giữa các request và thử lại khi có lỗi tạm thời.
-- Lưu định kỳ, hỗ trợ tiếp tục crawl từ dữ liệu JSON đã có.
-
-## Yêu cầu
-
-- Python 3.9 trở lên.
-- Kết nối Internet tới website nguồn.
-
-## Cài đặt
-
-Từ thư mục dự án, tạo và kích hoạt môi trường ảo, sau đó cài dependencies:
-
-```powershell
-# Windows PowerShell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
+## 1. Cài đặt
 
 ```bash
-# macOS / Linux
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+python3 -m venv venv
+source venv/bin/activate   # Windows: venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
-## Sử dụng
-
-Nên bắt đầu với phạm vi nhỏ và kiểm tra file kết quả trước khi tăng số trang:
+## 2. Chạy thử (khuyến nghị luôn chạy thử trước với phạm vi nhỏ)
 
 ```bash
-python crawl_monngonmoingay.py --max-pages 1 --delay 1.5
+python crawl_monngonmoingay.py --max-pages 3 --delay 1.5
 ```
 
-Ví dụ giới hạn tối đa 15 trang danh mục và 150 công thức chi tiết:
+Lệnh trên sẽ quét 3 trang danh mục đầu tiên (mỗi trang ~12 công thức, tổng
+~36 công thức), lưu kết quả vào thư mục `output/`:
+
+- `output/recipes.json` — dữ liệu đầy đủ, có cấu trúc (nguyên liệu là mảng object).
+- `output/recipes.csv` — 1 dòng/công thức, nguyên liệu gộp thành text dễ đọc.
+- `output/ingredients.csv` — 1 dòng/nguyên liệu (recipe, tên nguyên liệu,
+  số lượng, đơn vị) — dùng file này nếu bạn cần phân tích/đếm nguyên liệu.
+- `output/image_urls.csv` — link ảnh của từng món (cột `stt`, `name`, `image_url`),
+  xếp đúng thứ tự các món được crawl.
+
+## 3. Chạy crawl toàn bộ ~2.500 công thức
 
 ```bash
-python crawl_monngonmoingay.py --max-pages 15 --max-recipes 150 --delay 1.5
+python crawl_monngonmoingay.py --max-pages 212 --delay 1.5
 ```
 
-Crawl một danh mục cụ thể:
+Ước tính thời gian: ~2.500 công thức × (~2 request/công thức: trang danh mục
+đã tính riêng + trang chi tiết) × 1.5s delay ≈ **1–1.5 giờ**, tuỳ tốc độ
+mạng và độ ổn định của server. Bạn có thể:
+
+- Tăng `--delay` nếu bị chặn/lỗi 429 nhiều.
+- Dùng `--resume` để chạy lại từ chỗ dừng (script tự lưu tạm sau mỗi 10 công
+  thức, không cần chạy lại từ đầu nếu bị ngắt giữa chừng):
 
 ```bash
-python crawl_monngonmoingay.py --category-url "https://monngonmoingay.com/cac-mon-chay-ngon/" --max-pages 3 --delay 1.5
+python crawl_monngonmoingay.py --max-pages 212 --resume
 ```
 
-Tiếp tục từ những URL đã có trong `output/recipes.json`:
+## 4. Chỉ crawl 1 danh mục cụ thể
+
+Ví dụ chỉ lấy "Món chay":
 
 ```bash
-python crawl_monngonmoingay.py --max-pages 15 --resume --delay 1.5
+python crawl_monngonmoingay.py --category-url "https://monngonmoingay.com/cac-mon-chay-ngon/" --max-pages 50
 ```
 
-`--resume` cần file JSON kết quả hiện có. Nếu không truyền `--output-dir`, các kết quả được ghi vào `output/`.
+(Giả định trang danh mục con cũng hỗ trợ `.../page/2/`, `.../page/3/`...
+giống trang tổng — cần bạn kiểm tra thực tế, script sẽ tự dừng nếu 1 trang
+không trả về công thức nào.)
 
-### Tham số
+## 5. Cấu trúc dữ liệu ngõ ra (JSON)
 
-| Tham số | Mặc định | Ý nghĩa |
-| --- | --- | --- |
-| `--max-pages N` | `3` | Số trang danh mục tối đa cần quét. |
-| `--max-recipes N` | Không giới hạn | Giới hạn số URL công thức thu thập từ danh mục. |
-| `--category-url URL` | Danh mục tổng | URL danh mục bắt đầu. Phân trang của danh mục cần tương thích với website. |
-| `--delay SECONDS` | `1.5` | Thời gian nghỉ giữa các request; không nên đặt quá thấp. |
-| `--output-dir DIR` | `output` | Thư mục lưu các file kết quả. |
-| `--resume` | Tắt | Bỏ qua URL đã có trong `recipes.json`. |
-| `--ignore-robots` | Tắt | Bỏ qua kiểm tra `robots.txt`; không khuyến khích sử dụng. |
-
-## Kết quả
-
-Sau khi chạy, thư mục output gồm:
-
-- `recipes.json`: dữ liệu đầy đủ, mỗi công thức là một object; nguyên liệu là danh sách object.
-- `recipes.csv`: một dòng mỗi công thức; các bước, nguyên liệu và thẻ được gộp thành chuỗi.
-- `ingredients.csv`: một dòng mỗi nguyên liệu, kèm tên công thức, số lượng, đơn vị và ghi chú.
-
-Một số trường số lượng hoặc đơn vị có thể là `null` khi trang nguồn không cung cấp thông tin đó. Kết quả crawl là bản trích xuất tự động và cần được kiểm tra trước khi dùng.
-
-## Kiểm thử
-
-Các bài kiểm tra hiện dùng HTML giả lập, không gửi request đến website:
-
-```bash
-python -m tests.test_parse
+```json
+{
+  "url": "https://monngonmoingay.com/thit-bo-xao-dau-rong-sa-te/",
+  "name": "Thịt Bò Xào Đậu Rồng Sa Tế",
+  "image_url": "https://monngonmoingay.com/wp-content/uploads/.../Thit-Bo.png",
+  "description": "...",
+  "servings": 4,
+  "time_minutes": 10,
+  "difficulty": "Dễ",
+  "ingredients": [
+    {"name": "Thịt bò", "amount": "200", "unit": "g", "raw_text": "Thịt bò 200g", "group": null},
+    {"name": "Tỏi băm", "amount": null, "unit": null, "raw_text": "Tỏi băm", "group": null},
+    {"name": "dầu ăn", "amount": null, "unit": null, "raw_text": "dầu ăn", "group": "Gia vị"}
+  ],
+  "prep_steps": ["..."],
+  "cooking_steps": ["..."],
+  "usage_notes": ["..."],
+  "tips": ["..."],
+  "tags": ["Món Á", "Bắc", "Món mặn"]
+}
 ```
 
-Đây là kiểm thử parser, không xác nhận rằng cấu trúc website trực tiếp vẫn còn tương thích. Hãy chạy giới hạn nhỏ và kiểm tra dữ liệu thực tế trước mỗi lần crawl quy mô lớn.
+Lưu ý: nguyên liệu không ghi số lượng cụ thể trên trang gốc (ví dụ "Tỏi băm",
+"Ngò rí", hoặc các nguyên liệu trong nhóm "Gia vị: ...") sẽ có
+`amount = null, unit = null` — đây là đúng với dữ liệu gốc, không phải lỗi
+crawl.
 
-## Cấu trúc repository
+## 6. Giới hạn / điều cần biết
 
-```text
-.
-├── crawl_monngonmoingay.py   # CLI và logic crawl/parse
-├── tests/
-│   ├── __init__.py
-│   └── test_parse.py         # Kiểm thử parser bằng HTML giả lập
-├── output/
-│   └── .gitkeep              # Giữ thư mục; dữ liệu crawl không commit
-├── requirements.txt
-├── .gitignore
-├── LICENSE
-└── README.md
-```
+- **Chưa test trực tiếp trên site thật**: môi trường viết script này không
+  có quyền truy cập mạng ra `monngonmoingay.com`, nên logic được kiểm chứng
+  bằng HTML giả lập mô phỏng đúng cấu trúc đã quan sát (qua công cụ fetch
+  trang thật) — không phải chạy trực tiếp. **Bạn cần chạy `--max-pages 1`
+  trước tiên và mở `output/recipes.json` kiểm tra vài công thức đầu** để
+  chắc chắn selector còn khớp với HTML thực tế trước khi crawl số lượng lớn.
+- Script tôn trọng `robots.txt` của site (tự kiểm tra trước khi chạy).
+- Có delay + retry + backoff để hạn chế gây tải cho server / bị chặn IP.
+  Đừng hạ `--delay` xuống quá thấp.
+- Chỉ nên dùng dữ liệu cho mục đích cá nhân, học tập, phi thương mại — tôn
+  trọng bản quyền nội dung thuộc Ajinomoto Việt Nam / monngonmoingay.com.
+- Nếu site đổi giao diện, các hàm `parse_listing_page()` và
+  `parse_recipe_page()` trong `crawl_monngonmoingay.py` là nơi cần sửa
+  (mỗi bước đều có comment giải thích logic).
 
-File JSON/CSV tạo ra, môi trường ảo, cache Python và file tạm được loại khỏi Git theo `.gitignore`. Không commit dữ liệu thu thập được nếu chưa xác nhận quyền sử dụng và mục đích chia sẻ.
+## 7. Nếu selector bị sai khi chạy thật
 
-## Crawl có trách nhiệm và lưu ý pháp lý
-
-- Trước khi crawl, hãy đọc điều khoản sử dụng và `robots.txt` hiện hành của website. Chỉ thu thập đường dẫn được cho phép; tùy chọn `--ignore-robots` không thay thế sự cho phép của chủ website.
-- Giữ delay ở mức hợp lý, giảm phạm vi hoặc dừng nếu máy chủ phản hồi lỗi hay có dấu hiệu quá tải. Script không bảo đảm website sẽ luôn cho phép truy cập.
-- Nội dung công thức, hình ảnh, nhãn hiệu và dữ liệu trên website thuộc quyền của chủ sở hữu tương ứng. Giấy phép MIT trong repository này **chỉ áp dụng cho mã nguồn do dự án cung cấp**, không cấp quyền với nội dung đã crawl hoặc website nguồn.
-- Người sử dụng chịu trách nhiệm xác minh quyền, điều khoản và quy định pháp luật áp dụng trước khi lưu trữ, tái phân phối hoặc sử dụng dữ liệu, đặc biệt trong hoạt động thương mại.
-- Phần mềm được cung cấp "nguyên trạng", không có bảo đảm về độ chính xác, tính liên tục hoặc sự phù hợp cho một mục đích cụ thể.
-
-## Giấy phép
-
-Mã nguồn dự án được cấp phép theo [MIT License](LICENSE). Giấy phép này không bao gồm nội dung bên thứ ba được lấy từ website nguồn.
+Mở 1 trang công thức bất kỳ bằng trình duyệt, "View Page Source" (không phải
+Inspect, để tránh xem DOM đã bị JS chỉnh sửa), tìm đoạn HTML quanh mục
+"Nguyên Liệu" và gửi lại đoạn đó — tôi có thể chỉnh selector chính xác theo
+HTML thật.

@@ -70,30 +70,12 @@ UNIT_PATTERN = "|".join(re.escape(u) for u in KNOWN_UNITS)
 
 # Regex tách "Thịt bò 200g" -> name="Thịt bò", amount="200", unit="g"
 # hoặc "Tỏi băm 1 muỗng cà phê" -> name="Tỏi băm", amount="1", unit="muỗng cà phê"
-# Cho phép có phần GHI CHÚ SƠ CHẾ đi kèm sau đơn vị, ví dụ:
-# "Bông cải xanh 50g luộc chín, cắt hạt lựu" -> note="luộc chín, cắt hạt lựu"
-# (phần note này thường không có dấu phân cách rõ ràng với unit trên trang gốc,
-# nên KHÔNG bắt buộc unit phải đứng ở cuối chuỗi ($) như bản cũ.)
 INGREDIENT_RE = re.compile(
     r"^(?P<name>.*?)\s*[:\-]?\s*"
     r"(?P<amount>\d+(?:[.,]\d+)?(?:\s*[-–~]\s*\d+(?:[.,]\d+)?)?(?:/\d+)?)"
-    r"\s*(?P<unit>" + UNIT_PATTERN + r")?"
-    r"\s*(?P<note>.*)$",
+    r"\s*(?P<unit>" + UNIT_PATTERN + r")?\s*$",
     re.IGNORECASE,
 )
-
-
-def clean_text(s):
-    """
-    Chuẩn hoá khoảng trắng lấy được từ get_text(): HTML nguồn của trang có
-    thể chứa tab/newline/khoảng trắng thừa xen giữa các thẻ con lồng nhau
-    (ví dụ tên nguyên liệu, số lượng, ghi chú sơ chế nằm trong các <span>
-    khác nhau). get_text() giữ nguyên các ký tự này, nên cần gộp mọi chuỗi
-    whitespace (space/tab/newline liên tiếp) thành 1 dấu cách.
-    """
-    if s is None:
-        return s
-    return re.sub(r"\s+", " ", s).strip()
 
 
 def make_session():
@@ -179,7 +161,7 @@ def parse_listing_page(html, page_url):
         if href in seen_urls:
             continue
 
-        name = clean_text(a.get_text(strip=True))
+        name = a.get_text(strip=True)
         if not name:
             continue
 
@@ -204,7 +186,7 @@ def parse_listing_page(html, page_url):
             if image_url:
                 image_url = urljoin(BASE_URL, image_url)
 
-        card_text = clean_text(card.get_text(" ", strip=True))
+        card_text = card.get_text(" ", strip=True)
         servings_m = re.search(r"(\d+)\s*Người", card_text, re.IGNORECASE)
         time_m = re.search(r"(\d+)\s*Phút", card_text, re.IGNORECASE)
         # icon độ khó thường có text đi kèm ngay sau: "Dễ" / "Trung bình" / "Khó"
@@ -236,14 +218,10 @@ def get_total_pages(html):
 
 def parse_amount_unit(raw_text):
     """
-    Tách 1 dòng nguyên liệu thô thành (name, amount, unit, note).
+    Tách 1 dòng nguyên liệu thô thành (name, amount, unit).
     Nếu không tách được số lượng/đơn vị, trả amount=unit=None và giữ nguyên name.
-
-    "note" là phần ghi chú sơ chế đôi khi dính liền ngay sau số lượng/đơn vị
-    trên trang gốc, ví dụ: "Bông cải xanh 50g luộc chín, cắt hạt lựu"
-    -> name="Bông cải xanh", amount="50", unit="g", note="luộc chín, cắt hạt lựu"
     """
-    raw_text = clean_text(raw_text).strip(" -\u2022")
+    raw_text = raw_text.strip(" -\u2022\t")
     if not raw_text:
         return None
     m = INGREDIENT_RE.match(raw_text)
@@ -251,15 +229,17 @@ def parse_amount_unit(raw_text):
         name = m.group("name").strip(" -,:")
         amount = m.group("amount").strip()
         unit = (m.group("unit") or "").strip()
-        note = (m.group("note") or "").strip(" -,:")
+        # nếu number dính liền đơn vị kiểu "200g" mà regex unit rỗng vì
+        # unit không nằm trong KNOWN_UNITS (vd đơn vị lạ), thử tách hậu tố chữ
+        if not unit:
+            m2 = re.match(r"^([\d.,/\-–~ ]+)([A-Za-zÀ-ỹ]+)$", amount + "")
         return {
             "name": name if name else raw_text,
             "amount": amount if amount else None,
             "unit": unit if unit else None,
-            "note": note if note else None,
             "raw_text": raw_text,
         }
-    return {"name": raw_text, "amount": None, "unit": None, "note": None, "raw_text": raw_text}
+    return {"name": raw_text, "amount": None, "unit": None, "raw_text": raw_text}
 
 
 def parse_recipe_page(html, url):
@@ -270,11 +250,11 @@ def parse_recipe_page(html, url):
     # --- Tên công thức: ưu tiên meta og:title, fallback h1 ---
     og_title = soup.find("meta", property="og:title")
     if og_title and og_title.get("content"):
-        name = clean_text(og_title["content"])
+        name = og_title["content"]
         name = re.sub(r"\s*-\s*Món Ngon Mỗi Ngày\s*$", "", name).strip()
     else:
         h1 = soup.find("h1")
-        name = clean_text(text_or_none(h1)) if text_or_none(h1) else None
+        name = text_or_none(h1)
         if name:
             name = re.sub(r"\s*Chef Recommend\s*$", "", name).strip()
     data["name"] = name
@@ -285,9 +265,9 @@ def parse_recipe_page(html, url):
 
     # --- Mô tả ngắn (meta description) ---
     meta_desc = soup.find("meta", attrs={"name": "description"})
-    data["description"] = clean_text(meta_desc["content"]) if meta_desc and meta_desc.get("content") else None
+    data["description"] = meta_desc["content"].strip() if meta_desc and meta_desc.get("content") else None
 
-    page_text = clean_text(soup.get_text("\n", strip=True))
+    page_text = soup.get_text("\n", strip=True)
 
     # --- Khẩu phần / thời gian / độ khó ---
     servings_m = re.search(r"Khẩu\s*Phần:?\s*(\d+)\s*ngư[oờ]i", page_text, re.IGNORECASE)
@@ -324,7 +304,7 @@ def parse_recipe_page(html, url):
 
         seen_raw = set()
         for li in li_tags:
-            raw = clean_text(li.get_text(" ", strip=True))
+            raw = li.get_text(" ", strip=True)
             if not raw or raw in seen_raw:
                 continue
             seen_raw.add(raw)
@@ -335,10 +315,10 @@ def parse_recipe_page(html, url):
             gv_m = re.match(r"^Gia vị:?\s*(.+)$", raw, re.IGNORECASE)
             if gv_m:
                 for part in gv_m.group(1).split(","):
-                    part = clean_text(part).strip(" .")
+                    part = part.strip(" .")
                     if part:
                         ingredients.append({
-                            "name": part, "amount": None, "unit": None, "note": None,
+                            "name": part, "amount": None, "unit": None,
                             "raw_text": part, "group": "Gia vị",
                         })
                 continue
@@ -379,10 +359,10 @@ def parse_recipe_page(html, url):
         if anchor.name not in ("h1", "h2", "h3", "h4"):
             lis = anchor.find_all("li")
             if lis:
-                return [clean_text(li.get_text(" ", strip=True)) for li in lis if li.get_text(strip=True)]
+                return [li.get_text(" ", strip=True) for li in lis if li.get_text(strip=True)]
             p = anchor.find("p")
             if p and p.get_text(strip=True):
-                return [clean_text(p.get_text(" ", strip=True))]
+                return [p.get_text(" ", strip=True)]
             # nếu container rỗng, coi anchor như 1 mốc và rơi xuống trường hợp (b)
 
         # Trường hợp (b): duyệt các phần tử tiếp theo tới khi gặp heading cấp cao hơn/bằng
@@ -394,11 +374,11 @@ def parse_recipe_page(html, url):
                 if el_level <= stop_level:
                     break
             if el.name == "li":
-                t = clean_text(el.get_text(" ", strip=True))
+                t = el.get_text(" ", strip=True)
                 if t:
                     steps.append(t)
             elif el.name == "p" and not steps:
-                t = clean_text(el.get_text(" ", strip=True))
+                t = el.get_text(" ", strip=True)
                 if t:
                     steps.append(t)
         return steps
@@ -439,6 +419,7 @@ def save_outputs(records, output_dir):
     json_path = output_dir / "recipes.json"
     csv_path = output_dir / "recipes.csv"
     ingredients_csv_path = output_dir / "ingredients.csv"
+    images_csv_path = output_dir / "image_urls.csv"
 
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(records, f, ensure_ascii=False, indent=2)
@@ -477,16 +458,23 @@ def save_outputs(records, output_dir):
     # CSV cấp nguyên liệu (1 dòng / nguyên liệu) -- dễ phân tích/định lượng nhất
     with open(ingredients_csv_path, "w", encoding="utf-8-sig", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["recipe_name", "recipe_url", "ingredient_name", "amount", "unit", "note", "group", "raw_text"])
+        writer.writerow(["recipe_name", "recipe_url", "ingredient_name", "amount", "unit", "group", "raw_text"])
         for r in records:
             for ing in r.get("ingredients", []):
                 writer.writerow([
                     r.get("name"), r.get("url"),
-                    ing.get("name"), ing.get("amount"), ing.get("unit"), ing.get("note"),
+                    ing.get("name"), ing.get("amount"), ing.get("unit"),
                     ing.get("group"), ing.get("raw_text"),
                 ])
 
-    print(f"\nĐã lưu:\n  - {json_path}\n  - {csv_path}\n  - {ingredients_csv_path}")
+    # CSV link ảnh (1 dòng / công thức, đúng thứ tự crawl)
+    with open(images_csv_path, "w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["stt", "name", "image_url"])
+        for idx, r in enumerate(records, start=1):
+            writer.writerow([idx, r.get("name"), r.get("image_url")])
+
+    print(f"\nĐã lưu:\n  - {json_path}\n  - {csv_path}\n  - {ingredients_csv_path}\n  - {images_csv_path}")
 
 
 def main():
